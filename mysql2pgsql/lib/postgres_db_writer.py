@@ -1,5 +1,3 @@
-from __future__ import with_statement, absolute_import
-
 import time
 from contextlib import closing
 
@@ -68,9 +66,8 @@ class PostgresDbWriter(PostgresWriter):
         def read(self, *args, **kwargs):
             return self.readline(*args, **kwargs)
 
-    def __init__(self, db_options, verbose=False, *args, **kwargs):
+    def __init__(self, db_options, *args, **kwargs):
         super(PostgresDbWriter, self).__init__(*args, **kwargs)
-        self.verbose = verbose
         self.db_options = {
             'host': str(db_options['hostname']),
             'port': db_options.get('port', 5432),
@@ -203,4 +200,5 @@ class PostgresDbWriter(PostgresWriter):
         Returns None
         """
         f = self.FileObjFaker(table, reader.read(table), self.process_row, self.verbose)
-        self.copy_from(f, '"%s"' % table.name, ['"%s"' % c['name'] for c in table.columns])
+        self.copy_from(f, self.pgsql_case(table.name, False),
+            [self.pgsql_case(c['name'], False) for c in table.columns])

@@ -1,5 +1,3 @@
-from __future__ import absolute_import
-
 import time
 
 
@@ -20,9 +18,8 @@ class PostgresFileWriter(PostgresWriter):
     """
     verbose = None
 
-    def __init__(self, output_file, verbose=False, *args, **kwargs):
+    def __init__(self, output_file, *args, **kwargs):
         super(PostgresFileWriter, self).__init__(*args, **kwargs)
-        self.verbose = verbose
         self.f = output_file
         self.f.write("""
 -- MySQL 2 PostgreSQL dump\n
@@ -132,10 +129,10 @@ SET client_min_messages = warning;
 -- Data for Name: %(table_name)s; Type: TABLE DATA;
 --
 
-COPY "%(table_name)s" (%(column_names)s) FROM stdin;
+COPY %(table_name)s (%(column_names)s) FROM stdin;
 """ % {
-                'table_name': table.name,
-                'column_names': ', '.join(('"%s"' % col['name']) for col in table.columns)})
+        'table_name': self.pgsql_case(table.name, False),
+        'column_names': ', '.join(self.pgsql_case(col['name'], False) for col in table.columns) })
         if verbose:
             tt = time.time
             start_time = tt()

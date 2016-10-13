@@ -1,6 +1,5 @@
-from __future__ import with_statement, absolute_import
-
 import re
+import sys
 from contextlib import closing
 
 import MySQLdb
@@ -87,10 +86,14 @@ class MysqlReader(object):
             self._columns = self._load_columns()
             self._comment = self._load_table_comment()
             self._load_indexes()
+            self._add_auto_increments()
+            self._set_maxvals()
             self._load_triggers()
 
         def _convert_type(self, data_type):
             """Normalize MySQL `data_type`"""
+            if data_type.startswith('varbinary'):
+                return 'varbinary'
             if data_type.startswith('varchar'):
                 return 'varchar'
             elif data_type.startswith('char'):
@@ -120,6 +123,7 @@ class MysqlReader(object):
                 return data_type
 
         def _load_columns(self):
+            ignore_columns = self.reader.ignore_columns.get(self.name, None)
             fields = []
             for row in self.reader.db.query('SHOW FULL COLUMNS FROM `%s`' % self.name):
                 res = ()
@@ -128,41 +132,61 @@ class MysqlReader(object):
                     res += field.encode('utf8'),
                   else:
                     res += field,
-                length_match = re_column_length.search(res[1])
-                precision_match = re_column_precision.search(res[1])
-                length = length_match.group(1) if length_match else \
-                    precision_match.group(1) if precision_match else None
                 name = res[0]
-                comment = res[8]
-                field_type = self._convert_type(res[1])
-                desc = {
-                    'name': name,
-                    'table_name': self.name,
-                    'type': field_type,
-                    'length': int(length) if length else None,
-                    'decimals': precision_match.group(2) if precision_match else None,
-                    'null': res[3] == 'YES' or field_type.startswith('enum') or field_type in ('date', 'datetime', 'timestamp'),
-                    'primary_key': res[4] == 'PRI',
-                    'auto_increment': res[6] == 'auto_increment',
-                    'default': res[5] if not res[5] == 'NULL' else None,
-                    'comment': comment,
-                    'select': '`%s`' % name if not field_type.startswith('enum') else
-                        'CASE `%(name)s` WHEN "" THEN NULL ELSE `%(name)s` END' % {'name': name},
-                    }
-                fields.append(desc)
-
-            for field in (f for f in fields if f['auto_increment']):
-                res = self.reader.db.query('SELECT MAX(`%s`) FROM `%s`;' % (field['name'], self.name), one=True)
-                field['maxval'] = int(res[0]) if res[0] else 0
-
+                if not ignore_columns or name not in ignore_columns:
+                    length_match = re_column_length.search(res[1])
+                    precision_match = re_column_precision.search(res[1])
+                    length = length_match.group(1) if length_match else \
+                        precision_match.group(1) if precision_match else None
+                    comment = res[8]
+                    field_type = self._convert_type(res[1])
+                    desc = {
+                        'name': name,
+                        'table_name': self.name,
+                        'type': field_type,
+                        'length': int(length) if length else None,
+                        'decimals': precision_match.group(2) if precision_match else None,
+                        'null': res[3] == 'YES' or field_type.startswith('enum') or field_type in ('date', 'datetime', 'timestamp'),
+                        'primary_key': res[4] == 'PRI',
+                        'auto_increment': res[6] == 'auto_increment',
+                        'default': res[5] if not res[5] == 'NULL' else None,
+                        'comment': comment,
+                        'select': '`%s`' % name if not field_type.startswith('enum') else
+                            'CASE `%(name)s` WHEN "" THEN NULL ELSE `%(name)s` END' % {'name': name},
+                        }
+                    fields.append(desc)
             return fields
+
+        def _add_auto_increments(self):
+            key = self.name.lower()
+            if key in self.reader.auto_increments:
+                ai_name = self.reader.auto_increments[key]
+                for i, field in enumerate(self._columns):
+                    if field['name'].lower() == ai_name:
+                        if field['type'] == 'integer':
+                            if not self._columns[i]['auto_increment']:
+                                self._columns[i]['auto_increment'] = True
+                                if self.reader.verbose:
+                                    print "added auto_increment %s.%s" % (self.name, field['name'])
+                            else:
+                                if self.reader.verbose:
+                                    print "auto_increment already set for %s.%s" % (self.name, field['name'])
+                        else:
+                            print "bad auto_increment %s.%s, type was %s" % (self.name, field['name'], field['type'])
+                            sys.exit(1)
+
+        def _set_maxvals(self):
+            for i, field in enumerate(self._columns):
+                if field['auto_increment']:
+                    res = self.reader.db.query('SELECT MAX(`%s`) FROM `%s`;' % (field['name'], self.name), one=True)
+                    self._columns[i]['maxval'] = int(res[0]) if res[0] else 0
 
         def _load_table_comment(self):
             table_status = self.reader.db.query('SHOW TABLE STATUS WHERE Name="%s"' % self.name, one=True)
             comment = table_status[17]
             return comment
 
-          
+
         def _load_indexes(self):
             explain = self.reader.db.query('SHOW CREATE TABLE `%s`' % self.name, one=True)
             explain = explain[1]
@@ -238,8 +262,11 @@ class MysqlReader(object):
                 'table_name': self.name,
                 'column_names': ', '. join(c['select'] for c in self.columns)}
 
-    def __init__(self, options):
-        self.db = DB(options)
+    def __init__(self, options, verbose=False):
+        self.verbose = verbose
+        self.db = DB(options['mysql'])
+        self.auto_increments = options.get('auto_increments', [])
+        self.ignore_columns = options.get('ingore_columns', [])
 
     @property
     def tables(self):

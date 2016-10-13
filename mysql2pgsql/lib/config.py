@@ -1,5 +1,3 @@
-from __future__ import with_statement, absolute_import
-
 import os.path
 
 from yaml import load
@@ -47,17 +45,17 @@ mysql:
  port: 3306
  socket: /tmp/mysql.sock
  username: mysql2psql
- password: 
+ password:
  database: mysql2psql_test
  compress: false
 destination:
  # if file is given, output goes to file, else postgres
- file: 
+ file:
  postgres:
   hostname: localhost
   port: 5432
   username: mysql2psql
-  password: 
+  password:
   database: mysql2psql_test
 
 # if tables is given, only the listed tables will be converted.  leave empty to convert all tables.
@@ -78,10 +76,26 @@ supress_ddl: false
 # if force_truncate is true, forces a table truncate before table loading
 force_truncate: false
 
-# if timezone is true, forces to append/convert to UTC tzinfo mysql data
+# if source_timezone is non-empty string, sets the default timezone values for
+# mysql date and datetime values. Example: 'America/Los_Angeles'
+source_timezone: ''
+
+# if timezone is true, forces to append/convert to UTC tzinfo '+00' in output
 timezone: false
 
 # if index_prefix is given, indexes will be created whith a name prefixed with index_prefix
-index_prefix:
+index_prefix: ''
+
+# if sequence_naming is 'table', sequences will be given the same name
+# as their table (lower-cased), with '_seq' appended.
+# if sequence_naming is 'table_and_column', sequences will be given a name
+# combining the table and column (lower-cased), with '_seq' appended.
+sequence_naming: 'table'
+
+# if name_conversion is 'lower', MySQL table and column names will be
+# converted to lower-case (PostgreSQL is by default case-insensitive).
+# if name_conversion is 'preserve', MySQL table and column names will be
+# double-quoted to preserve their case.
+name_conversion: 'preserve'
 
 """
